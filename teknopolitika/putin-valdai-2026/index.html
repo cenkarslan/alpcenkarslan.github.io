@@ -1,0 +1,997 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Valdai 2026 · AI Analizi</title>
+<meta name="description" content="TEKNOPOLİTİKA — Putin'in 1 Ekim 2026 Valdai konuşmasındaki yapay zekâ, enerji ve insan kontrolü argümanının analitik çözümlemesi (60 sn, 9:16).">
+<style>
+@font-face{font-family:"TP Display";src:url(fonts/InterDisplay-Light.otf);font-weight:300}
+@font-face{font-family:"TP Display";src:url(fonts/InterDisplay-Bold.otf);font-weight:700}
+@font-face{font-family:"TP Display";src:url(fonts/InterDisplay-ExtraBold.otf);font-weight:800}
+@font-face{font-family:"TP Display";src:url(fonts/InterDisplay-Black.otf);font-weight:900}
+@font-face{font-family:"TP Sans";src:url(fonts/Inter-Regular.otf);font-weight:400}
+@font-face{font-family:"TP Sans";src:url(fonts/Inter-Medium.otf);font-weight:500}
+@font-face{font-family:"TP Sans";src:url(fonts/Inter-SemiBold.otf);font-weight:600}
+@font-face{font-family:"TP Sans";src:url(fonts/Inter-Bold.otf);font-weight:700}
+@font-face{font-family:"TP Serif";src:url(fonts/Newsreader-400.ttf);font-weight:400}
+@font-face{font-family:"TP Serif";src:url(fonts/Newsreader-600.ttf);font-weight:600}
+@font-face{font-family:"TP Serif";src:url(fonts/Newsreader-400i.ttf);font-weight:400;font-style:italic}
+@font-face{font-family:"TP Mono";src:url(fonts/PlexMono-400.ttf);font-weight:400}
+@font-face{font-family:"TP Mono";src:url(fonts/PlexMono-500.ttf);font-weight:500}
+@font-face{font-family:"TP Mono";src:url(fonts/PlexMono-600.ttf);font-weight:600}
+:root{--bg:#030405;--ink:#ECE8E0;--dim:#8B919A}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"TP Sans",system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px 16px;box-sizing:border-box}
+canvas{display:block;height:calc(100vh - 90px);max-width:100%;aspect-ratio:9/16;object-fit:contain;background:#000}
+#ui{display:flex;gap:12px;align-items:center;width:min(100%,520px);font:12px "TP Mono",monospace;color:var(--dim)}
+#ui button{background:none;border:1px solid #333;color:var(--ink);font:inherit;padding:6px 12px;cursor:pointer}
+#ui input{flex:1;accent-color:#5CC8C0}
+body.render{padding:0;display:block}
+body.render canvas{height:auto;width:1080px}
+body.render #ui{display:none}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<div id="ui"><button id="play">▶ OYNAT</button><input id="scrub" type="range" min="0" max="60" step="0.0333" value="0"><span id="tc">00.00</span></div>
+<script>
+"use strict";
+/* ================================================================
+   TEKNOPOLİTİKA · Putin'in Valdai 2026 AI konuşması — analitik video
+   Deterministik motor: renderFrame(t) her zaman aynı kareyi üretir.
+   ================================================================ */
+const W = 1080, H = 1920, FPS = 30, DUR = 60;
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+
+const C = {
+  bg: "#06080B", ink: "#ECE8E0", dim: "#8B919A", mute: "#5A6069",
+  hair: "rgba(236,232,224,0.16)",
+  src: "#C9A15B",      // KAYNAK — Putin'in söyledikleri
+  mean: "#C8D2DE",     // ANLAM
+  ana: "#5CC8C0",      // TEKNOPOLİTİKA analizi
+  alert: "#D5563F", phos: "#8CC79A", elec: "#CFEFFF"
+};
+const F = { d: '"TP Display"', s: '"TP Sans"', r: '"TP Serif"', m: '"TP Mono"' };
+
+// Layout (1080×1920, sosyal medya güvenli alanı içinde)
+const L = { x: 80, r: 1000, vx: 80, vy: 292, vw: 920, vh: 700, hy: 1040, ltY: 1338, ltW: 860 };
+
+/* ---------------- yardımcılar ---------------- */
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = k => 1 - Math.pow(1 - k, 3);
+const eIn = k => k * k * k;
+const eIO = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const eExp = k => k >= 1 ? 1 : 1 - Math.pow(2, -10 * k);
+const fract = v => v - Math.floor(v);
+function win(t, a, b, fi = .35, fo = .35) {
+  if (t < a || t > b) return 0;
+  return Math.min(fi > 0 ? eOut(prog(t, a, a + fi)) : 1, fo > 0 ? 1 - eIn(prog(t, b - fo, b)) : 1);
+}
+function hash(n) { n = Math.sin(n * 127.1 + 311.7) * 43758.5453; return n - Math.floor(n); }
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let x = s; x = Math.imul(x ^ x >>> 15, x | 1); x ^= x + Math.imul(x ^ x >>> 7, x | 61); return ((x ^ x >>> 14) >>> 0) / 4294967296; }; }
+function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; }
+
+function setFont(o) { ctx.font = `${o.it ? "italic " : ""}${o.w || 400} ${o.size}px ${o.f || F.s}`; ctx.letterSpacing = (o.ls || 0) + "px"; }
+function text(s, x, y, o) {
+  ctx.save(); setFont(o);
+  ctx.fillStyle = o.c || C.ink; ctx.globalAlpha *= (o.a ?? 1);
+  ctx.textAlign = o.align || "left"; ctx.textBaseline = o.base || "alphabetic";
+  ctx.fillText(s, x, y); ctx.restore();
+}
+function measure(s, o) { ctx.save(); setFont(o); const w = ctx.measureText(s).width; ctx.restore(); return w; }
+function fit(s, o, maxW, maxSize) { const w = measure(s, { ...o, size: 100 }); return Math.min(maxSize, 100 * maxW / w); }
+function wrap(s, o, maxW) {
+  const words = s.split(" "), lines = []; let cur = "";
+  for (const w of words) { const tryS = cur ? cur + " " + w : w; if (measure(tryS, o) > maxW && cur) { lines.push(cur); cur = w; } else cur = tryS; }
+  if (cur) lines.push(cur); return lines;
+}
+function line(x1, y1, x2, y2, c, w = 1, a = 1) { ctx.save(); ctx.globalAlpha *= a; ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore(); }
+function dot(x, y, r, c, a = 1) { ctx.save(); ctx.globalAlpha *= a; ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+function glow(x, y, r, c, a = 1) { ctx.save(); ctx.globalAlpha *= a; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, c); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); ctx.restore(); }
+function polyPrefix(pts, k) {
+  if (k <= 0 || pts.length < 2) return;
+  let total = 0; const seg = [];
+  for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); total += d; }
+  let rem = total * clamp(k); ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    if (rem >= seg[i - 1]) { ctx.lineTo(pts[i][0], pts[i][1]); rem -= seg[i - 1]; }
+    else { const f = rem / seg[i - 1]; ctx.lineTo(lerp(pts[i - 1][0], pts[i][0], f), lerp(pts[i - 1][1], pts[i][1], f)); break; }
+  }
+  ctx.stroke();
+}
+function clipRect(r) { ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip(); }
+const VR = { x: L.vx, y: L.vy, w: L.vw, h: L.vh };
+
+/* ---------------- grenli film dokusu ---------------- */
+const grains = [];
+(function () {
+  const R = rng(7);
+  for (let k = 0; k < 8; k++) {
+    const g = document.createElement("canvas"); g.width = 540; g.height = 960;
+    const gx = g.getContext("2d"), id = gx.createImageData(540, 960);
+    for (let i = 0; i < id.data.length; i += 4) { const v = R() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+    gx.putImageData(id, 0, 0); grains.push(g);
+  }
+})();
+function grain(t, a, r) {
+  const g = grains[Math.floor(t * FPS) % grains.length];
+  ctx.save(); ctx.globalAlpha = a; ctx.globalCompositeOperation = "overlay";
+  if (r) { clipRect(r); ctx.drawImage(g, r.x, r.y, r.w, r.h); } else ctx.drawImage(g, 0, 0, W, H);
+  ctx.restore();
+}
+
+/* ---------------- isteğe bağlı gerçek kaynak görüntü ----------------
+   ?plate=dosya.mp4 ile lisanslı konuşma görüntüsü (ör. kremlin.ru, CC BY 4.0)
+   kaynak karesinin içine yerleştirilir; yoksa temsili siluet çizilir. */
+let plateVideo = null;
+const plateSrc = new URLSearchParams(location.search).get("plate");
+if (plateSrc) {
+  plateVideo = document.createElement("video");
+  plateVideo.src = plateSrc; plateVideo.muted = true; plateVideo.preload = "auto"; plateVideo.playsInline = true;
+}
+async function seekPlate(t) {
+  if (!plateVideo || !plateVideo.duration) return;
+  const target = (t * 0.9) % Math.max(0.1, plateVideo.duration - 0.1);
+  if (Math.abs(plateVideo.currentTime - target) < 0.001) return;
+  await new Promise(res => { plateVideo.addEventListener("seeked", res, { once: true }); plateVideo.currentTime = target; });
+}
+
+/* ================================================================
+   GÖRSEL MODÜLLER
+   ================================================================ */
+
+/* — Kaynak karesi: Valdai konuşması (Putin, kaynak olarak; asla kahramanlaştırılmadan) — */
+function sourcePlate(t, r, o = {}) {
+  ctx.save(); clipRect(r);
+  const flick = 0.92 + 0.08 * hash(Math.floor(t * 12));
+  if (plateVideo && plateVideo.readyState >= 2) {
+    const vw = plateVideo.videoWidth, vh = plateVideo.videoHeight, s = Math.max(r.w / vw, r.h / vh);
+    ctx.filter = "grayscale(0.75) contrast(1.08) brightness(0.72) sepia(0.15)";
+    ctx.drawImage(plateVideo, r.x + (r.w - vw * s) / 2, r.y + (r.h - vh * s) / 2, vw * s, vh * s);
+    ctx.filter = "none";
+  } else {
+    // sahne: koyu, sıcak-gri; Valdai sahnesini çağrıştıran yatay ışık panelleri
+    const bg = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+    bg.addColorStop(0, "#17150f"); bg.addColorStop(.55, "#0f0e0b"); bg.addColorStop(1, "#080706");
+    ctx.fillStyle = bg; ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.globalAlpha = 0.5 * flick;
+    for (let i = 0; i < 6; i++) {
+      const px = r.x + r.w * (0.06 + i * 0.16), pw = r.w * 0.12;
+      const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h * .7);
+      g.addColorStop(0, "rgba(120,130,150,0.10)"); g.addColorStop(1, "rgba(120,130,150,0.0)");
+      ctx.fillStyle = g; ctx.fillRect(px, r.y + r.h * .08, pw, r.h * .6);
+    }
+    ctx.globalAlpha = 1;
+    // soğuk arka ışık
+    glow(r.x + r.w * .52, r.y + r.h * .34, r.w * .55, "rgba(130,138,155,0.30)");
+    // figür — göz hizasında, kadrajın içinde küçük; yüz detayı yok
+    const s = r.w / 920, cx = r.x + r.w * .40 + Math.sin(t * 1.1) * 2 * s, base = r.y + r.h;
+    const headY = r.y + r.h * .42 + Math.sin(t * 2.3) * 1.5 * s + Math.max(0, Math.sin(t * 3.1)) * 2 * s;
+    ctx.fillStyle = "#121110";
+    ctx.beginPath(); // omuzlar/gövde
+    ctx.moveTo(cx - 150 * s, base); ctx.bezierCurveTo(cx - 150 * s, headY + 120 * s, cx - 120 * s, headY + 78 * s, cx - 52 * s, headY + 70 * s);
+    ctx.lineTo(cx + 52 * s, headY + 70 * s); ctx.bezierCurveTo(cx + 120 * s, headY + 78 * s, cx + 150 * s, headY + 120 * s, cx + 150 * s, base); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, headY, 40 * s, 52 * s, 0, 0, Math.PI * 2); ctx.fill(); // baş
+    ctx.fillRect(cx - 18 * s, headY + 40 * s, 36 * s, 34 * s); // boyun
+    // kenar ışığı
+    ctx.strokeStyle = "rgba(200,205,215,0.40)"; ctx.lineWidth = 2.5 * s;
+    ctx.beginPath(); ctx.ellipse(cx, headY, 40 * s, 52 * s, 0, -Math.PI * .1, Math.PI * .45); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 52 * s, headY + 70 * s); ctx.bezierCurveTo(cx + 120 * s, headY + 78 * s, cx + 150 * s, headY + 120 * s, cx + 150 * s, base); ctx.stroke();
+    // kürsü + mikrofon
+    ctx.fillStyle = "#1b1914";
+    ctx.beginPath(); ctx.moveTo(cx - 210 * s, base); ctx.lineTo(cx - 180 * s, base - 190 * s); ctx.lineTo(cx + 180 * s, base - 190 * s); ctx.lineTo(cx + 210 * s, base); ctx.fill();
+    ctx.fillStyle = "rgba(200,190,170,0.08)"; ctx.fillRect(cx - 180 * s, base - 190 * s, 360 * s, 6 * s);
+    line(cx + 30 * s, base - 190 * s, cx + 8 * s, headY + 96 * s, "#2b2924", 4 * s);
+    dot(cx + 8 * s, headY + 94 * s, 6 * s, "#2b2924");
+    // ön planda masa/katılımcı silüetleri (bulanık)
+    ctx.fillStyle = "rgba(5,5,4,0.85)";
+    ctx.beginPath(); ctx.ellipse(r.x + r.w * .9, base + 10 * s, 120 * s, 90 * s, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // arşiv dokusu: tarama çizgileri + titreşim + vinyet
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  for (let y = r.y; y < r.y + r.h; y += 4) ctx.fillRect(r.x, y, r.w, 1);
+  ctx.fillStyle = `rgba(255,240,210,${0.035 * (1 - flick) * 10})`; ctx.fillRect(r.x, r.y, r.w, r.h);
+  const vg = ctx.createRadialGradient(r.x + r.w / 2, r.y + r.h / 2, r.h * .25, r.x + r.w / 2, r.y + r.h / 2, r.w * .75);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.65)"); ctx.fillStyle = vg; ctx.fillRect(r.x, r.y, r.w, r.h);
+  grain(t, .32, r);
+  ctx.restore();
+  // künye — Putin = kaynak (amber)
+  const k = r.w / 920, m = 22 * k, fs = Math.max(13, 17 * k);
+  if (!o.mini) {
+    text("KAYNAK GÖRÜNTÜ", r.x + m, r.y + m + fs, { f: F.m, w: 600, size: fs, c: C.src, ls: 2 });
+    text(o.label || "PUTİN · VALDAI KONUŞMASI", r.x + m, r.y + m + fs * 2.4, { f: F.m, w: 400, size: fs, c: C.ink, a: .85, ls: 1 });
+    text("VALDAI TARTIŞMA KULÜBÜ · XXIII. YILLIK TOPLANTI", r.x + m, r.y + r.h - m - fs * 1.5, { f: F.m, size: fs * .9, c: C.ink, a: .7, ls: 1 });
+    text("01.10.2026 · PLENER OTURUM", r.x + m, r.y + r.h - m, { f: F.m, size: fs * .9, c: C.dim, ls: 1 });
+  } else {
+    text("KAYNAK · VALDAI 01.10.2026", r.x + 12, r.y + 24, { f: F.m, w: 600, size: 14, c: C.src, ls: 1.5 });
+  }
+  // konuşma göstergesi (ses dalgası)
+  const bx = r.x + r.w - m - (o.mini ? 60 : 110) * k, by = r.y + r.h - m - (o.mini ? 0 : 6);
+  for (let i = 0; i < 10; i++) {
+    const hgt = (4 + 26 * Math.abs(Math.sin(t * 7.3 + i * 1.7) * Math.sin(t * 2.1 + i))) * (o.mini ? .5 : k);
+    ctx.fillStyle = rgba(C.src, .85); ctx.fillRect(bx + i * 10 * k, by - hgt, 4 * k, hgt);
+  }
+  if (!o.mini) {
+    const tc = 2783 + t; const mm = String(Math.floor(tc / 60)).padStart(2, "0"), ss = String(Math.floor(tc % 60)).padStart(2, "0"), ff = String(Math.floor((tc % 1) * 25)).padStart(2, "0");
+    text(`● ${mm}:${ss}:${ff}`, r.x + r.w - m, r.y + m + fs, { f: F.m, size: fs, c: C.alert, a: .9, align: "right", ls: 1 });
+  }
+  ctx.save(); ctx.strokeStyle = rgba(C.src, .55); ctx.lineWidth = 1.5; ctx.strokeRect(r.x + .75, r.y + .75, r.w - 1.5, r.h - 1.5); ctx.restore();
+}
+
+/* — Sinir ağı / hesaplama — */
+const NN = (() => {
+  const R = rng(11), layers = [6, 10, 12, 10, 4], nodes = [], edges = [];
+  layers.forEach((n, li) => { for (let i = 0; i < n; i++) nodes.push({ l: li, u: li / (layers.length - 1), v: (i + .5) / n + (R() - .5) * .02 }); });
+  let off = 0; const idx = [];
+  layers.forEach(n => { idx.push(off); off += n; });
+  for (let li = 0; li < layers.length - 1; li++)
+    for (let i = 0; i < layers[li]; i++) for (let j = 0; j < layers[li + 1]; j++) if (R() < .55) edges.push([idx[li] + i, idx[li + 1] + j, R()]);
+  return { nodes, edges };
+})();
+function neural(t, r, o = {}) {
+  const sc = o.scale || 1, cx = r.x + r.w / 2, cy = r.y + r.h / 2, sp = o.speed || 1;
+  const P = n => [cx + (n.u - .5) * r.w * .8 * sc, cy + (n.v - .5) * r.h * .78 * sc];
+  ctx.save(); ctx.lineWidth = 1;
+  for (const e of NN.edges) { const a = P(NN.nodes[e[0]]), b = P(NN.nodes[e[1]]); ctx.strokeStyle = `rgba(160,200,215,${.05 + .06 * e[2]})`; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  for (let k = 0; k < 90; k++) {
+    const e = NN.edges[(k * 37) % NN.edges.length], f = fract(t * sp * (.8 + hash(k) * 1.6) + hash(k + 9));
+    const a = P(NN.nodes[e[0]]), b = P(NN.nodes[e[1]]);
+    dot(lerp(a[0], b[0], f), lerp(a[1], b[1], f), 2.2, C.elec, .85 * Math.sin(f * Math.PI));
+  }
+  NN.nodes.forEach((n, i) => { const p = P(n), act = .4 + .6 * Math.max(0, Math.sin(t * 6 * sp + i)); dot(p[0], p[1], 5 * Math.min(sc, 1.6), "#0b1116"); ctx.strokeStyle = `rgba(207,239,255,${.35 + .5 * act})`; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(p[0], p[1], 5 * Math.min(sc, 1.6), 0, 7); ctx.stroke(); });
+  ctx.restore();
+}
+function tokenRain(t, r, a = 1) {
+  const chars = "0123456789ABCDEF∑∫λθ·×÷", cols = Math.floor(r.w / 30);
+  ctx.save(); clipRect(r); ctx.font = `400 16px ${F.m}`; ctx.textAlign = "center";
+  for (let c = 0; c < cols; c++) {
+    const sp = 260 + hash(c) * 420, off = hash(c + 50) * r.h, x = r.x + 15 + c * 30;
+    for (let k = 0; k < 18; k++) {
+      const y = r.y + ((off + t * sp + k * 22) % (r.h + 60)) - 30;
+      const ch = chars[Math.floor(hash(c * 31 + k + Math.floor(t * 18)) * chars.length)];
+      ctx.fillStyle = `rgba(150,205,220,${a * (.05 + .22 * (k / 18))})`; ctx.fillText(ch, x, y);
+    }
+  }
+  ctx.restore();
+}
+
+/* — İnsan beyni: tek çizgi kontur — */
+const BRAIN = (() => {
+  const outer = [], gyri = [];
+  for (let i = 0; i <= 220; i++) {
+    const th = Math.PI + (i / 220) * Math.PI * 2;
+    let rr = 1 + .045 * Math.sin(th * 9) + .03 * Math.sin(th * 15 + 1);
+    let x = Math.cos(th) * 1.3 * rr, y = Math.sin(th) * .88 * rr;
+    if (y > .25) y = .25 + (y - .25) * .45; // düzleşen alt yüzey
+    outer.push([x, y]);
+  }
+  for (let g = 0; g < 5; g++) {
+    const pts = [], y0 = -.55 + g * .2;
+    for (let i = 0; i <= 50; i++) { const u = i / 50; pts.push([-1.0 + u * 2.0 * (1 - Math.abs(y0) * .4), y0 + .06 * Math.sin(u * 18 + g * 2) + .04 * Math.sin(u * 7)]); }
+    gyri.push(pts);
+  }
+  const cereb = []; for (let i = 0; i <= 60; i++) { const th = i / 60 * Math.PI * 2; cereb.push([.85 + Math.cos(th) * .32, .42 + Math.sin(th) * .17]); }
+  const stem = [[.42, .3], [.5, .7], [.62, .78]];
+  return { outer, gyri, cereb, stem };
+})();
+function brain(t, r, k = 1, a = 1, pulse = true) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2 - 6, s = Math.min(r.w / 3.2, r.h / 2.2);
+  const map = pts => pts.map(p => [cx + p[0] * s, cy + p[1] * s]);
+  ctx.save(); ctx.globalAlpha *= a; ctx.strokeStyle = C.ink; ctx.lineWidth = 2; ctx.lineCap = "round";
+  polyPrefix(map(BRAIN.outer), k);
+  ctx.strokeStyle = "rgba(236,232,224,0.45)"; ctx.lineWidth = 1.3;
+  BRAIN.gyri.forEach((g, i) => polyPrefix(map(g), clamp(k * 1.4 - .2 - i * .06)));
+  polyPrefix(map(BRAIN.cereb), clamp(k * 1.3 - .3)); polyPrefix(map(BRAIN.stem), clamp(k * 1.5 - .5));
+  if (pulse && k > .6) {
+    const p = fract(t * .35), rr = s * (.2 + p * 1.2);
+    ctx.strokeStyle = rgba(C.ana, .5 * (1 - p)); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx - s * .2, cy - s * .15, rr, 0, 7); ctx.stroke();
+    dot(cx - s * .2, cy - s * .15, 5, C.ana, .9);
+  }
+  ctx.restore();
+}
+
+/* — Çip — */
+function chip(t, r, a = 1) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2, s = Math.min(r.w, r.h) * .46;
+  ctx.save(); ctx.globalAlpha *= a;
+  for (let i = 0; i < 28; i++) { // izler
+    const side = i % 4, f = (Math.floor(i / 4) + .5) / 7 - .5;
+    const p0 = [[cx + f * s * 1.4, cy - s * .6], [cx + s * .6, cy + f * s * 1.4], [cx + f * s * 1.4, cy + s * .6], [cx - s * .6, cy + f * s * 1.4]][side];
+    const dir = [[0, -1], [1, 0], [0, 1], [-1, 0]][side], len = s * (.8 + hash(i) * .6);
+    const p1 = [p0[0] + dir[0] * len * .5, p0[1] + dir[1] * len * .5], p2 = [p1[0] + (dir[1] ? (hash(i + 3) - .5) * 80 : 0) + dir[0] * len * .5, p1[1] + (dir[0] ? (hash(i + 3) - .5) * 80 : 0) + dir[1] * len * .5];
+    ctx.strokeStyle = "rgba(200,170,110,0.35)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1); ctx.lineTo(...p2); ctx.stroke();
+    const f2 = fract(t * .9 + hash(i * 7)); dot(lerp(p0[0], p1[0], f2), lerp(p0[1], p1[1], f2), 2, C.elec, .8);
+  }
+  ctx.fillStyle = "#0d1014"; ctx.fillRect(cx - s * .6, cy - s * .6, s * 1.2, s * 1.2);
+  ctx.strokeStyle = "rgba(220,200,160,0.55)"; ctx.lineWidth = 1.5; ctx.strokeRect(cx - s * .6, cy - s * .6, s * 1.2, s * 1.2);
+  const n = 8, cs = s * 1.04 / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const on = .25 + .75 * Math.max(0, Math.sin(t * 5 + i * 1.3 + j * .7 + hash(i * 9 + j) * 6));
+    ctx.fillStyle = `rgba(92,200,192,${.08 + .35 * on})`; ctx.fillRect(cx - s * .52 + i * cs + 2, cy - s * .52 + j * cs + 2, cs - 4, cs - 4);
+  }
+  ctx.restore();
+}
+
+/* — Veri merkezi (tek kaçış noktalı perspektif) — */
+function racks(t, r, light = 1, a = 1, zoom = 1) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h * .46, f = r.w * .36 * zoom;
+  const P = (X, Y, z) => [cx + X / z * f, cy + Y / z * f];
+  ctx.save(); clipRect(r); ctx.globalAlpha *= a;
+  // zemin + tavan çizgileri
+  ctx.strokeStyle = "rgba(160,190,210,0.07)"; ctx.lineWidth = 1;
+  for (let z = 1; z < 12; z += .6) { const a1 = P(-3, 1.1, z), b1 = P(3, 1.1, z); ctx.beginPath(); ctx.moveTo(...a1); ctx.lineTo(...b1); ctx.stroke(); }
+  for (let X = -3; X <= 3; X += .6) { const a1 = P(X, 1.1, 1), b1 = P(X, 1.1, 14); ctx.beginPath(); ctx.moveTo(...a1); ctx.lineTo(...b1); ctx.stroke(); }
+  for (let z = 1.2; z < 12; z += 1.2) { const a1 = P(-.5, -1.45, z), b1 = P(.5, -1.45, z); line(a1[0], a1[1], b1[0], b1[1], "rgba(220,235,245,0.5)", 2.5 / z * 2); }
+  for (const side of [-1, 1]) {
+    for (let i = 11; i >= 0; i--) {
+      const z0 = 1 + i * .62, z1 = z0 + .56, X = 1.15 * side;
+      const q = [P(X, -1.2, z0), P(X, -1.2, z1), P(X, 1.1, z1), P(X, 1.1, z0)];
+      ctx.fillStyle = "#0b0f13"; ctx.beginPath(); ctx.moveTo(...q[0]); q.slice(1).forEach(p => ctx.lineTo(...p)); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(160,190,210,0.18)"; ctx.stroke();
+      for (let u = 0; u < 4; u++) for (let v = 0; v < 14; v++) {
+        const id = i * 97 + u * 13 + v + (side > 0 ? 5000 : 0), lit = hash(id) < light * 1.05 - (i / 12) * (1 - light);
+        if (!lit) continue;
+        const z = lerp(z0 + .05, z1 - .05, (u + .5) / 4), Y = lerp(-1.1, 1.0, (v + .5) / 14), p = P(X, Y, z);
+        const blink = .5 + .5 * Math.sin(t * (3 + hash(id + 1) * 9) + id);
+        const col = hash(id + 2) < .8 ? `rgba(92,200,192,${.4 + .6 * blink})` : `rgba(230,240,255,${.5 + .5 * blink})`;
+        ctx.fillStyle = col; const sz = Math.max(1, 5 / z); ctx.fillRect(p[0] - sz, p[1] - sz * .35, sz * 2, sz * .7);
+      }
+    }
+  }
+  glow(cx, cy, r.w * .25, "rgba(92,200,192,0.10)");
+  ctx.restore();
+}
+
+/* — Enerji: santral → iletim hatları → veri merkezi — */
+function catenary(x1, y1, x2, y2, sag, n = 30) { const pts = []; for (let i = 0; i <= n; i++) { const u = i / n; pts.push([lerp(x1, x2, u), lerp(y1, y2, u) + sag * 4 * u * (1 - u)]); } return pts; }
+function pylon(x, y, h, c) {
+  ctx.save(); ctx.strokeStyle = c; ctx.lineWidth = Math.max(1, h / 90);
+  ctx.beginPath(); ctx.moveTo(x - h * .18, y); ctx.lineTo(x - h * .04, y - h); ctx.lineTo(x + h * .04, y - h); ctx.lineTo(x + h * .18, y);
+  ctx.moveTo(x - h * .26, y - h * .78); ctx.lineTo(x + h * .26, y - h * .78); ctx.moveTo(x - h * .2, y - h * .58); ctx.lineTo(x + h * .2, y - h * .58);
+  for (let k = 0; k < 5; k++) { const y0 = y - h * k / 5, y1 = y - h * (k + 1) / 5, w0 = lerp(.18, .04, k / 5) * h, w1 = lerp(.18, .04, (k + 1) / 5) * h; ctx.moveTo(x - w0, y0); ctx.lineTo(x + w1, y1); ctx.moveTo(x + w0, y0); ctx.lineTo(x - w1, y1); }
+  ctx.stroke(); ctx.restore();
+}
+function tower(x, y, h, w) { // soğutma kulesi
+  ctx.beginPath(); ctx.moveTo(x - w * .5, y); ctx.quadraticCurveTo(x - w * .22, y - h * .6, x - w * .3, y - h); ctx.lineTo(x + w * .3, y - h); ctx.quadraticCurveTo(x + w * .22, y - h * .6, x + w * .5, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+function powerGrid(t, r, k = 1, a = 1) {
+  const hz = r.y + r.h * .58;
+  ctx.save(); clipRect(r); ctx.globalAlpha *= a;
+  const sky = ctx.createLinearGradient(0, r.y, 0, hz); sky.addColorStop(0, "rgba(10,14,20,0)"); sky.addColorStop(1, "rgba(40,55,70,0.25)");
+  ctx.fillStyle = sky; ctx.fillRect(r.x, r.y, r.w, hz - r.y);
+  line(r.x, hz, r.x + r.w, hz, "rgba(200,220,235,0.18)", 1);
+  // santraller (arka plan)
+  const ap = eOut(prog(k, 0, .5));
+  ctx.fillStyle = "#0c1015"; ctx.strokeStyle = `rgba(200,215,230,${.35 * ap})`; ctx.lineWidth = 1.5;
+  ctx.save(); ctx.globalAlpha *= ap;
+  [[.12, 150, 95], [.22, 120, 80], [.84, 140, 90]].forEach(([u, h, w]) => tower(r.x + r.w * u, hz, h, w));
+  ctx.fillRect(r.x + r.w * .70, hz - 70, 70, 70); ctx.strokeRect(r.x + r.w * .70, hz - 70, 70, 70);
+  line(r.x + r.w * .74, hz - 70, r.x + r.w * .74, hz - 170, "rgba(200,215,230,0.35)", 6);
+  for (let i = 0; i < 9; i++) { const p = fract(t * .12 + i / 9); glow(r.x + r.w * (i % 3 === 2 ? .84 : i % 3 ? .22 : .12) + p * 40, hz - (i % 3 === 1 ? 120 : 150) - p * 120, 30 + p * 40, "rgba(190,200,210,0.10)", 1 - p); }
+  ctx.restore();
+  // pilonlar ve hatlar
+  const dc = { x: r.x + r.w * .5, y: r.y + r.h * .9 };
+  const routes = [
+    [[r.x + r.w * .17, hz - 30], [r.x + r.w * .28, hz + 40, 70], [r.x + r.w * .38, hz + 130, 120], [dc.x - 120, dc.y - 70, 0]],
+    [[r.x + r.w * .74, hz - 30], [r.x + r.w * .70, hz + 40, 70], [r.x + r.w * .63, hz + 130, 120], [dc.x + 120, dc.y - 70, 0]],
+  ];
+  const lk = eOut(prog(k, .15, .8));
+  routes.forEach((rt, ri) => {
+    for (let i = 1; i < rt.length; i++) if (rt[i][2]) pylon(rt[i][0], rt[i][1], rt[i][2], `rgba(200,215,230,${.5 * lk})`);
+    const tops = rt.map((p, i) => i === 0 ? p : (p[2] ? [p[0], p[1] - p[2] * .78] : [p[0], p[1]]));
+    for (let i = 0; i < tops.length - 1; i++) {
+      for (const dx of [-1, 1]) {
+        const off = (rt[i + 1][2] || 30) * .24 * dx, offA = i === 0 ? 0 : (rt[i][2] || 30) * .24 * dx;
+        const pts = catenary(tops[i][0] + offA, tops[i][1], tops[i + 1][0] + off, tops[i + 1][1], 18);
+        ctx.strokeStyle = `rgba(207,239,255,${.35 * lk})`; ctx.lineWidth = 1.2; polyPrefix(pts, clamp(lk * 3 - i));
+        for (let q = 0; q < 3; q++) { const f = fract(t * .8 + q / 3 + ri * .17 + dx * .1); const p = pts[Math.floor(f * (pts.length - 1))]; if (lk > .9) { glow(p[0], p[1], 14, "rgba(207,239,255,0.6)"); dot(p[0], p[1], 2, "#fff"); } }
+      }
+    }
+  });
+  // veri merkezi bloğu
+  ctx.fillStyle = "#0b0f13"; ctx.strokeStyle = "rgba(160,190,210,0.4)"; ctx.lineWidth = 1.5;
+  ctx.fillRect(dc.x - 150, dc.y - 80, 300, 80); ctx.strokeRect(dc.x - 150, dc.y - 80, 300, 80);
+  for (let i = 0; i < 24; i++) for (let j = 0; j < 4; j++) { const b = .4 + .6 * Math.max(0, Math.sin(t * 4 + i * .7 + j * 2)); ctx.fillStyle = `rgba(92,200,192,${b * .8})`; ctx.fillRect(dc.x - 138 + i * 11.6, dc.y - 66 + j * 16, 6, 3); }
+  text("VERİ MERKEZİ", dc.x, dc.y + 24, { f: F.m, size: 15, c: C.dim, align: "center", ls: 2, a: lk });
+  text("SANTRAL", r.x + r.w * .17, r.y + r.h * .58 - 165, { f: F.m, size: 15, c: C.dim, align: "center", ls: 2, a: ap });
+  text("SANTRAL", r.x + r.w * .80, r.y + r.h * .58 - 185, { f: F.m, size: 15, c: C.dim, align: "center", ls: 2, a: ap });
+  text("İLETİM HATTI", r.x + r.w * .30, hz + 150, { f: F.m, size: 15, c: C.dim, align: "center", ls: 2, a: lk });
+  ctx.restore();
+}
+
+/* — Radar: 26 Eylül 1983 — */
+function radar(t, r, st) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h * .47, R = r.h * .38;
+  ctx.save(); clipRect(r);
+  ctx.fillStyle = "#050806"; ctx.fillRect(r.x, r.y, r.w, r.h);
+  glow(cx, cy, R * 1.3, "rgba(140,199,154,0.10)");
+  ctx.strokeStyle = rgba(C.phos, .28); ctx.lineWidth = 1;
+  for (let i = 1; i <= 4; i++) { ctx.beginPath(); ctx.arc(cx, cy, R * i / 4, 0, 7); ctx.stroke(); }
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; line(cx, cy, cx + Math.cos(a) * R, cy + Math.sin(a) * R, rgba(C.phos, .12)); }
+  // stilize kutup projeksiyonu kıyı çizgileri
+  ctx.strokeStyle = rgba(C.phos, .35); ctx.lineWidth = 1.4;
+  for (const [a0, a1, rr, wob] of [[-2.7, -.5, .78, 7], [.4, 2.6, .62, 5], [2.9, 3.6, .4, 9]]) {
+    ctx.beginPath(); for (let i = 0; i <= 60; i++) { const a = lerp(a0, a1, i / 60), q = R * (rr + .05 * Math.sin(a * wob) + .03 * Math.sin(a * 17)); i ? ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q) : ctx.moveTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q); } ctx.stroke();
+  }
+  text("ABD", cx + R * .1, cy - R * .62, { f: F.m, size: 16, c: C.phos, a: .7, align: "center", ls: 2 });
+  text("SSCB", cx - R * .05, cy + R * .5, { f: F.m, size: 16, c: C.phos, a: .7, align: "center", ls: 2 });
+  // tarama
+  const sw = t * 2.2;
+  const g = ctx.createConicGradient(sw - .9, cx, cy);
+  g.addColorStop(0, "rgba(140,199,154,0)"); g.addColorStop(.14, "rgba(140,199,154,0.28)"); g.addColorStop(.1401, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+  line(cx, cy, cx + Math.cos(sw - .9 + .14 * Math.PI * 2) * R, cy + Math.sin(sw - .9 + .14 * Math.PI * 2) * R, rgba(C.phos, .8), 1.5);
+  // füze izleri (yanlış alarm)
+  const det = st.detect, fals = st.falseK;
+  for (let i = 0; i < 5; i++) {
+    const ap = prog(det, i * .18, i * .18 + .12); if (ap <= 0) continue;
+    const bx = cx + (-120 + i * 60) * (r.w / 920), by = cy - R * .7 + i * 8, ey = by + 60 + ap * 40;
+    const col = fals > 0 ? C.phos : C.alert, al = fals > 0 ? 1 - fals * .85 : 1;
+    ctx.strokeStyle = rgba(col, .6 * al); ctx.setLineDash([4, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + 6, ey); ctx.stroke(); ctx.setLineDash([]);
+    glow(bx + 6, ey, 26, rgba(col, .5 * al)); dot(bx + 6, ey, 5, col, al);
+    if (fals > 0) { const s = 10; line(bx + 6 - s, ey - s, bx + 6 + s, ey + s, C.ink, 2, fals); line(bx + 6 + s, ey - s, bx + 6 - s, ey + s, C.ink, 2, fals); }
+  }
+  // CRT dokusu
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; for (let y = r.y; y < r.y + r.h; y += 3) ctx.fillRect(r.x, y, r.w, 1);
+  const vg = ctx.createRadialGradient(cx, cy, R * .6, cx, cy, r.w * .7); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.7)"); ctx.fillStyle = vg; ctx.fillRect(r.x, r.y, r.w, r.h);
+  grain(t, .25, r);
+  ctx.restore();
+  // ekran künyesi
+  text("OKO ERKEN UYARI SİSTEMİ", r.x + 22, r.y + 40, { f: F.m, w: 600, size: 17, c: C.phos, ls: 2 });
+  text("SERPUKHOV-15 KOMUTA MERKEZİ · 26.09.1983 · 00:15", r.x + 22, r.y + 64, { f: F.m, size: 15, c: C.phos, a: .65, ls: 1 });
+  if (det > 0 && st.falseK <= 0) {
+    const bl = Math.floor(t * 4) % 2 ? 1 : .35;
+    ctx.save(); ctx.globalAlpha = bl * clamp(det * 4);
+    ctx.fillStyle = rgba(C.alert, .18); ctx.fillRect(r.x + r.w - 330, r.y + 22, 308, 56); ctx.strokeStyle = C.alert; ctx.lineWidth = 1.5; ctx.strokeRect(r.x + r.w - 330, r.y + 22, 308, 56);
+    text("FIRLATMA ALGILANDI", r.x + r.w - 176, r.y + 58, { f: F.m, w: 600, size: 20, c: C.alert, align: "center", ls: 2 });
+    ctx.restore();
+  }
+  if (st.falseK > 0) {
+    text("SEBEP: BULUTLARDAN YANSIYAN GÜNEŞ IŞIĞI", r.x + 22, r.y + r.h - 30, { f: F.m, w: 500, size: 16, c: C.ink, a: st.falseK, ls: 1.5 });
+  }
+}
+
+/* — Askerî karar ağı — */
+const NET = [
+  { k: "UYDU", u: .5, v: .1 }, { k: "SENSÖR", u: .14, v: .34 }, { k: "DRON", u: .86, v: .34 },
+  { k: "HAVA SAVUNMA", u: .2, v: .8 }, { k: "KOMUTA", u: .8, v: .8 }, { k: "AI", u: .5, v: .5 }
+];
+function icon(kind, x, y, s, c) {
+  ctx.save(); ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.8; ctx.beginPath();
+  if (kind === "UYDU") { ctx.strokeRect(x - s * .25, y - s * .25, s * .5, s * .5); ctx.strokeRect(x - s, y - s * .18, s * .6, s * .36); ctx.strokeRect(x + s * .4, y - s * .18, s * .6, s * .36); }
+  else if (kind === "SENSÖR") { for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.arc(x - s * .5, y, s * .35 * i, -.7, .7); ctx.stroke(); } dot(x - s * .5, y, 3, c); }
+  else if (kind === "DRON") { line(x - s * .6, y - s * .6, x + s * .6, y + s * .6, c, 1.8); line(x + s * .6, y - s * .6, x - s * .6, y + s * .6, c, 1.8); for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { ctx.beginPath(); ctx.arc(x + a * s * .6, y + b * s * .6, s * .28, 0, 7); ctx.stroke(); } }
+  else if (kind === "HAVA SAVUNMA") { ctx.moveTo(x - s * .8, y + s * .5); ctx.lineTo(x + s * .8, y + s * .5); ctx.moveTo(x - s * .4, y + s * .5); ctx.lineTo(x + s * .5, y - s * .6); ctx.moveTo(x - s * .2, y + s * .5); ctx.lineTo(x + s * .7, y - s * .45); ctx.stroke(); }
+  else if (kind === "KOMUTA") { ctx.strokeRect(x - s * .6, y - s * .6, s * 1.2, s * 1.2); line(x - s, y, x + s, y, c, 1.2); line(x, y - s, x, y + s, c, 1.2); ctx.beginPath(); ctx.arc(x, y, s * .3, 0, 7); ctx.stroke(); }
+  else if (kind === "AI") { for (let i = 0; i <= 6; i++) { const a = i / 6 * Math.PI * 2 + Math.PI / 6; i ? ctx.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s) : ctx.moveTo(x + Math.cos(a) * s, y + Math.sin(a) * s); } ctx.stroke(); }
+  ctx.restore();
+}
+function commandNet(t, r, k = 1, a = 1, speed = 1) {
+  ctx.save(); clipRect(r); ctx.globalAlpha *= a;
+  // topografik zemin
+  ctx.strokeStyle = "rgba(160,190,210,0.06)"; ctx.lineWidth = 1;
+  for (let j = 0; j < 9; j++) { ctx.beginPath(); for (let i = 0; i <= 80; i++) { const x = r.x + i / 80 * r.w, y = r.y + (j + .5) / 9 * r.h + 18 * Math.sin(i * .13 + j) + 10 * Math.sin(i * .05 + j * 2); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); }
+  const P = n => [r.x + n.u * r.w, r.y + n.v * r.h], ai = P(NET[5]);
+  NET.slice(0, 5).forEach((n, i) => {
+    const p = P(n), lk = eOut(prog(k, .1 + i * .1, .45 + i * .1));
+    ctx.strokeStyle = rgba(C.ana, .45); ctx.lineWidth = 1.4; polyPrefix([p, ai], lk);
+    const nb = P(NET[(i + 1) % 5]); ctx.strokeStyle = "rgba(200,215,230,0.12)"; polyPrefix([p, nb], lk);
+    if (lk >= 1) for (let q = 0; q < 2; q++) { const f = fract(t * .9 * speed + q * .5 + i * .13); const x = lerp(p[0], ai[0], f), y = lerp(p[1], ai[1], f); glow(x, y, 12, rgba(C.ana, .7)); dot(x, y, 2.2, "#eafffb"); }
+  });
+  NET.forEach((n, i) => {
+    const p = P(n), ap = eOut(prog(k, i === 5 ? 0 : .05 + i * .1, (i === 5 ? .2 : .3 + i * .1)));
+    if (ap <= 0) return;
+    ctx.save(); ctx.globalAlpha *= ap;
+    const s = r.h / 700;
+    ctx.fillStyle = "#070a0d"; ctx.beginPath(); ctx.arc(p[0], p[1], (i === 5 ? 52 : 40) * s, 0, 7); ctx.fill();
+    ctx.strokeStyle = i === 5 ? C.ana : "rgba(236,232,224,0.5)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p[0], p[1], (i === 5 ? 52 : 40) * s, 0, 7); ctx.stroke();
+    if (i === 5) glow(p[0], p[1], 120 * s, rgba(C.ana, .18 + .1 * Math.sin(t * 4 * speed)));
+    icon(n.k, p[0], p[1], (i === 5 ? 26 : 18) * s, i === 5 ? C.ana : C.ink);
+    text(n.k, p[0], p[1] + (i === 5 ? 82 : 68) * s, { f: F.m, w: 600, size: Math.max(13, 17 * s), c: i === 5 ? C.ana : C.ink, align: "center", ls: 2 });
+    ctx.restore();
+  });
+  ctx.restore();
+}
+// TESPİT → ANALİZ → KARAR → MÜDAHALE; döngü hızlanır, insan döngünün kenarına itilir
+function killChain(t, x, y, w, k, accel) {
+  const steps = ["TESPİT", "ANALİZ", "KARAR", "MÜDAHALE"], bh = 58, gap = 26;
+  // hızlanan faz: periyot 2.2s → 0.18s
+  const phase = chainPhase(t);
+  steps.forEach((s, i) => {
+    const ap = eOut(prog(k, i * .15, i * .15 + .3)); if (ap <= 0) return;
+    const by = y + i * (bh + gap);
+    const act = Math.max(0, 1 - Math.abs(fract(phase) * 4 - i - .5) * 1.3);
+    ctx.save(); ctx.globalAlpha *= ap;
+    ctx.fillStyle = `rgba(92,200,192,${.06 + .3 * act})`; ctx.fillRect(x, by, w, bh);
+    ctx.strokeStyle = rgba(C.ana, .35 + .6 * act); ctx.lineWidth = 1.5; ctx.strokeRect(x, by, w, bh);
+    text(s, x + 20, by + bh / 2 + 1, { f: F.m, w: 600, size: 22, c: C.ink, base: "middle", ls: 3 });
+    text(String(i + 1).padStart(2, "0"), x + w - 18, by + bh / 2 + 1, { f: F.m, size: 15, c: C.dim, align: "right", base: "middle" });
+    if (i < 3) { const ax = x + 40, ay = by + bh + 3; line(ax, ay, ax, ay + gap - 6, rgba(C.ana, .7), 1.5); ctx.fillStyle = rgba(C.ana, .7); ctx.beginPath(); ctx.moveTo(ax - 6, ay + gap - 10); ctx.lineTo(ax + 6, ay + gap - 10); ctx.lineTo(ax, ay + gap - 3); ctx.fill(); }
+    ctx.restore();
+  });
+  // insan işareti — KARAR kutusunun yanında; hız arttıkça uzaklaşır
+  const ky = y + 2 * (bh + gap) + bh / 2, hk = eOut(prog(k, .6, .9));
+  if (hk > 0) {
+    const drift = eIO(accel) * 70, hx = x + w + 40 + drift, al = hk * (1 - accel * .62);
+    ctx.save(); ctx.globalAlpha *= al;
+    line(x + w, ky, hx - 20, ky, C.ink, 1.2); ctx.setLineDash([]);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(hx, ky - 16, 9, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hx - 16, ky + 22); ctx.quadraticCurveTo(hx, ky - 10, hx + 16, ky + 22); ctx.stroke();
+    ctx.restore();
+    const lab = accel < .34 ? "İNSAN DÖNGÜNÜN İÇİNDE" : accel < .7 ? "İNSAN DÖNGÜNÜN ÜZERİNDE" : "İNSAN DÖNGÜNÜN DIŞINDA?";
+    text(lab, x, y + 4 * (bh + gap) + 14, { f: F.m, w: 600, size: 15, c: accel < .7 ? C.ink : C.alert, ls: 1.5, a: hk });
+  }
+}
+function chainPhase(t) {
+  // ∫ 1/periyot dt — periyot 38.6→45.6 sn arasında 2.2 sn'den 0.18 sn'ye iner
+  const a = 38.6, b = 45.6; let acc = 0, dt = 1 / 120;
+  for (let s = a; s < Math.min(t, 46); s += dt) { const k = eIn(prog(s, a, b)); acc += dt / lerp(2.2, .18, k); }
+  return acc;
+}
+
+/* — Küre ağı — */
+const GLOBE = (() => { const R = rng(23), pts = []; for (let i = 0; i < 46; i++) { const lat = (R() * 1.6 - .8) * Math.PI / 2 * 1.1, lon = R() * Math.PI * 2; pts.push([Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)]); } const arcs = []; for (let i = 0; i < 34; i++) arcs.push([Math.floor(R() * 46), Math.floor(R() * 46), R()]); return { pts, arcs }; })();
+function globe(t, r, a = 1) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2, R = Math.min(r.w, r.h) * .42, rot = t * .18, tilt = -.35;
+  const proj = v => { let [x, y, z] = v; const c = Math.cos(rot), s = Math.sin(rot); [x, z] = [x * c + z * s, -x * s + z * c]; const ct = Math.cos(tilt), st = Math.sin(tilt); [y, z] = [y * ct - z * st, y * st + z * ct]; return [cx + x * R, cy - y * R, z]; };
+  ctx.save(); ctx.globalAlpha *= a;
+  glow(cx, cy, R * 1.25, "rgba(92,200,192,0.08)");
+  ctx.strokeStyle = "rgba(200,215,230,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
+  const seg = (pts) => { for (let i = 1; i < pts.length; i++) { const p = pts[i - 1], q = pts[i]; if (p[2] > 0 && q[2] > 0) { ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); } } };
+  ctx.beginPath();
+  for (let m = 0; m < 12; m++) { const lon = m / 12 * Math.PI * 2, pts = []; for (let i = 0; i <= 40; i++) { const lat = -Math.PI / 2 + i / 40 * Math.PI; pts.push(proj([Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)])); } seg(pts); }
+  for (let p = -2; p <= 2; p++) { const lat = p * Math.PI / 7, pts = []; for (let i = 0; i <= 60; i++) { const lon = i / 60 * Math.PI * 2; pts.push(proj([Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)])); } seg(pts); }
+  ctx.strokeStyle = "rgba(200,215,230,0.10)"; ctx.stroke();
+  GLOBE.arcs.forEach(([i, j, s], n) => {
+    const A = GLOBE.pts[i], B = GLOBE.pts[j], pts = [];
+    for (let q = 0; q <= 30; q++) { const u = q / 30, v = [lerp(A[0], B[0], u), lerp(A[1], B[1], u), lerp(A[2], B[2], u)], l = Math.hypot(...v) || 1, lift = 1 + .18 * Math.sin(u * Math.PI); pts.push(proj(v.map(c => c / l * lift))); }
+    ctx.strokeStyle = rgba(C.ana, .28); ctx.lineWidth = 1.2; ctx.beginPath(); seg(pts); ctx.stroke();
+    const f = fract(t * .5 + s), p = pts[Math.floor(f * 30)]; if (p[2] > 0) dot(p[0], p[1], 2.4, "#dffcf8", .9);
+  });
+  GLOBE.pts.forEach(v => { const p = proj(v); if (p[2] > 0) dot(p[0], p[1], 2.6, C.ink, .3 + .6 * p[2]); });
+  ctx.restore();
+}
+
+/* — Katmanlar: ENERJİ · COMPUTE · KARAR → EGEMENLİK — */
+function layers(t, r, k, sov) {
+  const cx = r.x + r.w * .4, s = r.w / 920;
+  const names = [["KARAR", "yetki · komuta · otonomi"], ["COMPUTE", "çip · model · veri merkezi"], ["ENERJİ", "üretim · şebeke · iletim"]];
+  const ys = [r.y + r.h * .27, r.y + r.h * .51, r.y + r.h * .75], pw = 250 * s, ph = 80 * s;
+  // dikey bağlantılar
+  const lk = eOut(prog(k, .45, .8));
+  for (let i = 0; i < 2; i++) for (const dx of [-.5, 0, .5]) {
+    const x = cx + dx * pw, y1 = ys[i] + ph * .5, y2 = ys[i + 1] - ph * .5;
+    line(x, y2, x, lerp(y2, y1, lk), rgba(C.ana, .5), 1.4);
+    if (lk >= 1) { const f = fract(t * .9 + dx + i * .3); dot(x, lerp(y2, y1, f), 3, "#e6fffb"); }
+  }
+  names.forEach(([n, sub], i) => {
+    const ap = eOut(prog(k, (2 - i) * .14, (2 - i) * .14 + .35)); if (ap <= 0) return;
+    const y = ys[i] + (1 - ap) * 30;
+    ctx.save(); ctx.globalAlpha *= ap;
+    ctx.beginPath(); ctx.moveTo(cx - pw, y); ctx.lineTo(cx, y - ph * .5); ctx.lineTo(cx + pw, y); ctx.lineTo(cx, y + ph * .5); ctx.closePath();
+    ctx.fillStyle = "rgba(14,22,28,0.9)"; ctx.fill(); ctx.strokeStyle = i === 0 ? C.ana : "rgba(236,232,224,0.55)"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.save(); ctx.clip(); ctx.strokeStyle = "rgba(160,200,215,0.12)"; ctx.lineWidth = 1;
+    for (let g = -6; g <= 6; g++) { line(cx + g * pw / 6 - pw * .5, y - ph * .5 + (g + 6) / 12 * 0, cx + g * pw / 6 + pw * .5, y + ph * .5, "rgba(160,200,215,0.10)"); line(cx + g * pw / 6 + pw * .5, y - ph * .5, cx + g * pw / 6 - pw * .5, y + ph * .5, "rgba(160,200,215,0.10)"); }
+    ctx.restore();
+    text(n, cx + pw + 26 * s, y - 4, { f: F.d, w: 800, size: 34 * s, c: C.ink, base: "middle", ls: 1 });
+    text(sub, cx + pw + 26 * s, y + 26 * s, { f: F.m, size: 14 * s, c: C.dim, base: "middle", ls: 1 });
+    ctx.restore();
+  });
+  // EGEMENLİK çerçevesi
+  if (sov > 0) {
+    const e = eOut(sov), bx = r.x + 40 * s, by = r.y + 40 * s, bw = r.w - 80 * s, bh = r.h - 80 * s;
+    ctx.save(); ctx.strokeStyle = C.ana; ctx.lineWidth = 2;
+    const per = 2 * (bw + bh), len = per * e;
+    ctx.setLineDash([len, per]); ctx.strokeRect(bx, by, bw, bh); ctx.setLineDash([]);
+    ctx.fillStyle = C.bg; ctx.fillRect(bx + 24 * s, by - 18 * s, 280 * s, 36 * s);
+    text("EGEMENLİK", bx + 40 * s, by + 1, { f: F.d, w: 900, size: 34 * s, c: C.ana, base: "middle", ls: 4, a: e });
+    ctx.restore();
+  }
+}
+
+/* ================================================================
+   TİPOGRAFİ BİLEŞENLERİ
+   ================================================================ */
+// Ana başlık bloğu (y = L.hy'den aşağı). lines: [{s, f, w, it, max, c}]
+function headline(t, a, b, lines, o = {}) {
+  if (t < a - .01 || t > b) return;
+  const out = eIn(prog(t, b - .3, b));
+  let y = o.y || L.hy;
+  lines.forEach((ln, i) => {
+    const fo = { f: ln.f || F.d, w: ln.w || 900, it: ln.it, ls: ln.ls ?? -1 };
+    const size = ln.size || fit(ln.s, fo, o.maxW || L.ltW, ln.max || 110);
+    y += size * (ln.lh || 1.0);
+    const k = eExp(prog(t, a + i * .09, a + i * .09 + .65));
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y - size * 1.05, W, size * 1.32); ctx.clip();
+    text(ln.s, o.x || L.x, y + (1 - k) * size * 1.05 - out * 14, { ...fo, size, c: ln.c || C.ink, a: 1 - out });
+    ctx.restore();
+    y += size * (ln.gap ?? .14);
+  });
+}
+
+// Alt-üçte analitik notlar: 01 PUTİN NE DEDİ · 02 NE ANLAMA GELİYOR · 03 NEDEN ÖNEMLİ
+const TIERS = {
+  said: { n: "01", lab: "PUTİN NE DEDİ", c: C.src },
+  mean: { n: "02", lab: "NE ANLAMA GELİYOR", c: C.mean },
+  ana:  { n: "03", lab: "NEDEN ÖNEMLİ · TEKNOPOLİTİKA", c: C.ana }
+};
+const LT_FONT = { f: F.s, w: 500, size: 34 };
+const LT = [
+  [1.25, 3.75, "said", "Putin'in Valdai konuşması, yapay zekâyı yalnızca teknoloji değil;"],
+  [3.75, 5.95, "said", "güç, enerji ve karar verme sorunu olarak ele aldı."],
+  [6.5, 10.9, "said", "Konuşmanın temel hatlarından biri, makine hesaplaması ile insan muhakemesi arasındaki farktı."],
+  [10.9, 14.85, "mean", "Hesaplama hızı ölçülebilir; muhakeme ise bağlam, şüphe ve sorumluluk gerektirir."],
+  [15.4, 20.3, "said", "Putin, Stanislav Petrov vakasını kullanarak otomatik karar ile insan şüphesi arasındaki farkı vurguladı."],
+  [20.3, 24.85, "ana", "Ancak bu örnek, Putin'den bağımsız olarak bugün otonom sistemler tartışmasının da merkezinde."],
+  [25.4, 29.4, "said", "Putin'in ikinci önemli hattı yapay zekânın fiziksel altyapısıydı:"],
+  [29.4, 32.2, "said", "büyük modeller, büyük hesaplama kapasitesi ve büyük enerji talebi."],
+  [32.2, 34.85, "mean", "Model yarışı, aynı zamanda bir enerji ve altyapı yarışıdır."],
+  [35.4, 39.4, "said", "Konuşmanın en stratejik boyutu: yapay zekânın askerî karar süreçlerini hızlandırması…"],
+  [39.4, 42.9, "said", "…ve bunun insan kontrolünü nasıl değiştireceği sorusuydu."],
+  [42.9, 45.85, "mean", "Karar süresi kısaldıkça insan, döngünün içinden kenarına itilebilir."],
+  [46.4, 51.2, "ana", "Teknopolitik açıdan konuşmanın ortak noktası açık: hesaplama kapasitesi, enerji altyapısı ve karar yetkisi…"],
+  [51.2, 54.85, "ana", "…giderek aynı güç denkleminde birleşiyor."]
+];
+function ltFont(s) {
+  for (let size = 34; size >= 30; size--) { const f = { ...LT_FONT, size }; if (wrap(s, f, L.ltW - 24).length <= 2) return f; }
+  console.warn("Alt-üç 2 satırı aşıyor:", s); return { ...LT_FONT, size: 30 };
+}
+function lowerThirds(t) {
+  // yumuşak zemin
+  const vis = LT.some(c => t >= c[0] - .2 && t <= c[1] + .1);
+  if (t < 55.2) {
+    const g = ctx.createLinearGradient(0, 1270, 0, 1620);
+    g.addColorStop(0, "rgba(6,8,11,0)"); g.addColorStop(.35, "rgba(6,8,11,0.72)"); g.addColorStop(1, "rgba(6,8,11,0.85)");
+    ctx.fillStyle = g; ctx.fillRect(0, 1270, W, 350);
+  }
+  LT.forEach((c, i) => {
+    const [a, b, tier, s] = c; if (t < a || t > b) return;
+    const T = TIERS[tier], prev = LT[i - 1], next = LT[i + 1];
+    const contIn = prev && Math.abs(prev[1] - a) < .01 && prev[2] === tier;
+    const contOut = next && Math.abs(next[0] - b) < .01 && next[2] === tier;
+    const kin = eOut(prog(t, a, a + .45)), kout = eIn(prog(t, b - .28, b));
+    const LF = ltFont(s), lines = wrap(s, LF, L.ltW - 24);
+    const x = L.x, y0 = L.ltY;
+    const lh = 47, blockH = 40 + lines.length * lh;
+    // dikey çizgi
+    const rk = contIn ? 1 : kin, rOut = contOut ? 0 : kout;
+    ctx.save(); ctx.globalAlpha = 1 - rOut;
+    ctx.fillStyle = T.c; ctx.fillRect(x, y0, 3, blockH * rk);
+    // katman etiketi + hiyerarşi göstergesi
+    const ta = contIn ? 1 : eOut(prog(t, a + .1, a + .5));
+    text(T.n, x + 22, y0 + 18, { f: F.m, w: 600, size: 18, c: T.c, a: ta, ls: 2 });
+    text(T.lab, x + 58, y0 + 18, { f: F.m, w: 600, size: 18, c: T.c, a: ta, ls: 3 });
+    // üç adımlı ölçek: ● ○ ○
+    ["said", "mean", "ana"].forEach((k, j) => { const on = k === tier; ctx.globalAlpha = (1 - rOut) * ta * (on ? 1 : .35); ctx.fillStyle = on ? T.c : C.dim; ctx.fillRect(L.x + L.ltW - 84 + j * 30, y0 + 9, 22, 3); });
+    ctx.restore();
+    // metin satırları
+    lines.forEach((ln, j) => {
+      const k = eOut(prog(t, a + .15 + j * .1, a + .65 + j * .1)), ko = eIn(prog(t, b - .28, b));
+      text(ln, x + 22, y0 + 40 + (j + 1) * lh - 10 + (1 - k) * 14, { ...LF, c: C.ink, a: k * (1 - ko) });
+    });
+  });
+}
+
+// Üst bilgi şeridi: marka + bölüm etiketi + ilerleme
+const SECTIONS = [
+  [0, 6, "VALDAI · 01.10.2026", C.src, ""],
+  [6, 15, "1 — İNSAN / MAKİNE", C.ink, ""],
+  [15, 25, "1 — İNSAN / MAKİNE", C.ink, "VAKA · PETROV, 1983"],
+  [25, 35, "2 — FİZİKSEL GÜÇ", C.ink, ""],
+  [35, 46, "3 — KARAR HIZI", C.ink, ""],
+  [46, 55, "TEKNOPOLİTİKA ANALİZİ", C.ana, ""]
+];
+function header(t) {
+  const a = 1 - prog(t, 54.7, 55.2); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a * eOut(prog(t, .1, .6));
+  text("TEKNOPOLİTİKA", L.x, 176, { f: F.d, w: 800, size: 26, c: C.ink, ls: 6 });
+  text("ANALİZ · 60 SN", L.r, 176, { f: F.m, size: 16, c: C.dim, align: "right", ls: 2 });
+  line(L.x, 198, L.r, 198, C.hair, 1);
+  ctx.fillStyle = C.ana; ctx.fillRect(L.x, 197, (L.r - L.x) * clamp(t / 55), 3);
+  [6, 15, 25, 35, 46].forEach(s => { ctx.fillStyle = C.mute; ctx.fillRect(L.x + (L.r - L.x) * s / 55 - 1, 193, 2, 10); });
+  ctx.restore();
+  SECTIONS.forEach(([a0, b0, lab, col, sub]) => {
+    const k = win(t, a0, b0, .4, .3); if (k <= 0) return;
+    ctx.save(); ctx.globalAlpha = a * k;
+    text(lab, L.x, 244, { f: F.m, w: 600, size: 19, c: col, ls: 3 });
+    if (sub) text(sub, L.r, 244, { f: F.m, size: 16, c: C.dim, align: "right", ls: 2 });
+    ctx.restore();
+  });
+}
+
+function frameMarks(t, r, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = "rgba(236,232,224,0.35)"; ctx.lineWidth = 1.5;
+  const m = 22;
+  [[r.x, r.y, 1, 1], [r.x + r.w, r.y, -1, 1], [r.x, r.y + r.h, 1, -1], [r.x + r.w, r.y + r.h, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.beginPath(); ctx.moveTo(x + sx * m, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * m); ctx.stroke(); });
+  ctx.restore();
+}
+
+/* ================================================================
+   SAHNELER
+   ================================================================ */
+const HOOK_CUTS = [
+  [0.12, 0.95, "plate"], [0.95, 1.38, "chip"], [1.38, 2.05, "plate"], [2.05, 2.48, "racks"], [2.48, 3.0, "plate"],
+  [3.0, 3.7, "neural", "YAPAY ZEKÂ"], [3.7, 4.4, "grid", "ENERJİ"], [4.4, 5.1, "net", "SAVAŞ"], [5.1, 6.15, "brain", "İNSAN KONTROLÜ"]
+];
+function drawKind(kind, t, r, a = 1) {
+  ctx.save(); ctx.globalAlpha *= a;
+  if (kind === "plate") sourcePlate(t, r);
+  else if (kind === "chip") { ctx.fillStyle = "#07090c"; ctx.fillRect(r.x, r.y, r.w, r.h); chip(t, r); }
+  else if (kind === "racks") racks(t, r, 1, 1, 1.15);
+  else if (kind === "neural") { tokenRain(t, r, .6); neural(t, r, { speed: 1.4 }); }
+  else if (kind === "grid") powerGrid(t, r, 1);
+  else if (kind === "net") commandNet(t, r, 1, 1, 1.6);
+  else if (kind === "brain") brain(t, r, 1, 1);
+  ctx.restore();
+}
+
+function sceneHook(t) {
+  if (t > 6.3) return;
+  const cut = HOOK_CUTS.find(c => t >= c[0] && t < c[1]);
+  if (cut) {
+    ctx.save(); clipRect(VR);
+    let a = 1; if (cut[2] === "brain") a = 1; // bölüm 1'e akar
+    drawKind(cut[2], t, VR, a);
+    // kesme anı ışık sızıntısı
+    const since = t - cut[0]; if (since < .07) { ctx.fillStyle = `rgba(236,232,224,${.10 * (1 - since / .07)})`; ctx.fillRect(VR.x, VR.y, VR.w, VR.h); }
+    ctx.restore();
+    if (cut[3]) {
+      const k = eExp(prog(t, cut[0], cut[0] + .3)), idx = HOOK_CUTS.indexOf(cut) - 4;
+      ctx.save(); ctx.fillStyle = "rgba(4,6,8,0.55)"; ctx.fillRect(VR.x, VR.y, VR.w, VR.h); ctx.restore();
+      const size = fit(cut[3], { f: F.d, w: 900, ls: -1 }, VR.w - 140, 130);
+      ctx.save(); ctx.beginPath(); ctx.rect(VR.x, VR.y + VR.h / 2 - size, VR.w, size * 1.4); ctx.clip();
+      text(cut[3], VR.x + VR.w / 2, VR.y + VR.h / 2 + size * .36 + (1 - k) * size, { f: F.d, w: 900, size, c: C.ink, align: "center", ls: -1 });
+      ctx.restore();
+      text(`0${idx} / 04`, VR.x + VR.w / 2, VR.y + VR.h / 2 - size * .75, { f: F.m, w: 600, size: 18, c: C.ana, align: "center", ls: 3, a: k });
+    }
+    // dört başlık rafı
+    if (t >= 3.0) {
+      const words = ["YAPAY ZEKÂ", "ENERJİ", "SAVAŞ", "İNSAN KONTROLÜ"]; let x = VR.x + 24;
+      const cur = HOOK_CUTS.indexOf(cut) - 5;
+      words.forEach((w, i) => { const on = i <= cur; text(w, x, VR.y + VR.h - 26, { f: F.m, w: 600, size: 16, c: i === cur ? C.ana : C.ink, a: on ? (i === cur ? 1 : .55) : .18, ls: 2 }); x += measure(w, { f: F.m, w: 600, size: 16, ls: 2 }) + 30; });
+    }
+  }
+  frameMarks(t, VR, eOut(prog(t, .1, .5)));
+  headline(t, .55, 6.0, [
+    { s: "PUTİN'İN AI KONUŞMASINDA", w: 800, max: 70, c: C.ink, gap: .12 },
+    { s: "ASLINDA NE VARDI?", f: F.r, w: 400, it: true, max: 124, ls: -1, c: C.ink }
+  ]);
+}
+
+function sceneHumanMachine(t) {
+  if (t < 5.9 || t > 15.4) return;
+  const a = win(t, 5.95, 15.3, .5, .35);
+  const top = { x: VR.x, y: VR.y, w: VR.w, h: 340 }, bot = { x: VR.x, y: VR.y + 360, w: VR.w, h: 340 };
+  const judge = eIO(prog(t, 10.0, 11.0));
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.save(); clipRect(top); ctx.fillStyle = "#070a0d"; ctx.fillRect(top.x, top.y, top.w, top.h);
+  tokenRain(t, top, 1 - judge * .5); neural(t, { x: top.x + 40, y: top.y + 30, w: top.w - 80, h: top.h - 60 }, { speed: 2.2 });
+  ctx.restore();
+  // işlem göstergesi
+  const bars = 24; for (let i = 0; i < bars; i++) { const h = 6 + 40 * Math.abs(Math.sin(t * 9 + i * .8)); ctx.fillStyle = rgba(C.elec, .45 * (1 - judge * .4)); ctx.fillRect(top.x + top.w - 24 - (bars - i) * 9, top.y + top.h - 22 - h, 5, h); }
+  text("MAKİNE HESAPLAMASI", top.x + 22, top.y + 38, { f: F.m, w: 600, size: 18, c: C.elec, ls: 3, a: 1 - judge * .45 });
+  text("ölçek · hız · örüntü", top.x + 22, top.y + 62, { f: F.m, size: 15, c: C.dim, ls: 1, a: 1 - judge * .45 });
+  line(VR.x, VR.y + 350, VR.x + VR.w, VR.y + 350, C.hair, 1);
+  text("/", VR.x + VR.w / 2, VR.y + 362, { f: F.r, w: 400, size: 44, c: C.dim, align: "center" });
+  ctx.save(); clipRect(bot);
+  brain(t, { x: bot.x, y: bot.y + 10, w: bot.w, h: bot.h - 40 }, t < 6.3 ? 1 : 1, .55 + .45 * judge);
+  ctx.restore();
+  text("İNSAN MUHAKEMESİ", bot.x + 22, bot.y + 38, { f: F.m, w: 600, size: 18, c: judge > .5 ? C.ana : C.ink, ls: 3, a: .6 + .4 * judge });
+  const tags = ["BAĞLAM", "ŞÜPHE", "SORUMLULUK"];
+  tags.forEach((s, i) => text(s, bot.x + bot.w - 22, bot.y + 38 + i * 26, { f: F.m, size: 15, c: C.ana, align: "right", ls: 2, a: eOut(prog(t, 10.8 + i * .25, 11.3 + i * .25)) }));
+  ctx.restore();
+  frameMarks(t, VR, a);
+  headline(t, 6.55, 10.1, [{ s: "AI HESAPLAYABİLİR.", w: 900, max: 112 }]);
+  headline(t, 10.15, 14.95, [
+    { s: "AMA MUHAKEME", f: F.r, it: true, w: 400, max: 112, gap: .02 },
+    { s: "EDEBİLİR Mİ?", f: F.r, it: true, w: 400, max: 112, c: C.ana }
+  ]);
+}
+
+function scenePetrov(t) {
+  if (t < 14.9 || t > 25.4) return;
+  const a = win(t, 15.0, 25.3, .45, .3);
+  const st = { detect: prog(t, 16.8, 18.4), falseK: eOut(prog(t, 20.4, 21.0)) };
+  ctx.save(); ctx.globalAlpha = a;
+  const ra = 1 - eIO(prog(t, 21.75, 22.2));
+  if (ra > 0) { ctx.save(); ctx.globalAlpha *= ra; radar(t, VR, st); ctx.restore(); }
+  // Petrov künye kartı
+  const pk = win(t, 18.8, 21.8, .4, .3);
+  if (pk > 0) {
+    const cx = VR.x + 22, cy = VR.y + VR.h - 150;
+    ctx.save(); ctx.globalAlpha *= pk * ra;
+    ctx.fillStyle = "rgba(6,8,11,0.88)"; ctx.fillRect(cx, cy, 470, 100); ctx.fillStyle = C.ink; ctx.fillRect(cx, cy, 3, 100);
+    text("STANISLAV PETROV", cx + 22, cy + 46, { f: F.d, w: 800, size: 34, c: C.ink, ls: 1 });
+    text("YARBAY · NÖBETÇİ SUBAY", cx + 22, cy + 78, { f: F.m, size: 16, c: C.dim, ls: 2 });
+    ctx.restore();
+  }
+  // kaynağa dönüş: Putin bu örneği kullandı
+  const pa = eIO(prog(t, 21.85, 22.3));
+  if (pa > 0) { ctx.save(); ctx.globalAlpha *= pa; sourcePlate(t, VR, { label: "PUTİN · PETROV ÖRNEĞİ" }); ctx.restore(); }
+  ctx.restore();
+  frameMarks(t, VR, a);
+  // tipografi
+  headline(t, 15.05, 16.75, [{ s: "26 EYLÜL 1983", f: F.m, w: 500, max: 92, ls: 2 }]);
+  const tab = (row, y, k, c2) => {
+    if (k <= 0) return;
+    text(row[0], L.x, y, { f: F.d, w: 900, size: 76, c: C.ink, a: k, ls: -1 });
+    const w0 = 360; line(L.x + w0 - 10, y - 26, L.x + w0 + lerp(0, 90, k), y - 26, C.dim, 2, k);
+    ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = C.dim; ctx.beginPath(); ctx.moveTo(L.x + w0 + 90 * k, y - 34); ctx.lineTo(L.x + w0 + 90 * k + 14, y - 26); ctx.lineTo(L.x + w0 + 90 * k, y - 18); ctx.fill(); ctx.restore();
+    text(row[1], L.x + w0 + 130, y, { f: F.d, w: 900, size: 76, c: c2, a: k, ls: -1 });
+  };
+  const tOut = 1 - eIn(prog(t, 20.1, 20.4));
+  if (t > 16.8 && t < 20.4) {
+    ctx.save(); ctx.globalAlpha = tOut;
+    tab(["SİSTEM", "SALDIRI"], L.hy + 82, eOut(prog(t, 16.85, 17.3)), C.alert);
+    tab(["PETROV", "ŞÜPHE"], L.hy + 182, eOut(prog(t, 18.85, 19.3)), C.ana);
+    ctx.restore();
+  }
+  headline(t, 20.45, 21.85, [{ s: "ALARM YANLIŞTI.", w: 900, max: 112 }]);
+  headline(t, 21.95, 25.0, [
+    { s: "AI PETROV'UN", f: F.r, it: true, w: 400, max: 112, gap: .02 },
+    { s: "YERİNDE OLSAYDI?", f: F.r, it: true, w: 400, max: 112, c: C.ana }
+  ]);
+}
+
+function sceneEnergy(t) {
+  if (t < 24.95 || t > 35.4) return;
+  const a = win(t, 25.0, 35.3, 0, .3);
+  ctx.save(); ctx.globalAlpha = a; clipRect(VR);
+  ctx.fillStyle = "#06080b"; ctx.fillRect(VR.x, VR.y, VR.w, VR.h);
+  // sinir ağı genişleyerek veri merkezine dönüşür
+  const nz = prog(t, 25.0, 26.0);
+  if (nz < 1) { ctx.save(); ctx.globalAlpha *= 1 - eIn(nz); neural(t, VR, { scale: 1 + eIn(nz) * 2.6, speed: 2 }); ctx.restore(); }
+  const ra = eOut(prog(t, 25.5, 26.3)) * (1 - eIO(prog(t, 28.6, 29.4)));
+  if (ra > 0) racks(t, VR, eOut(prog(t, 25.7, 28.0)), ra, lerp(1.25, .95, eOut(prog(t, 25.5, 29.0))));
+  const ga = eOut(prog(t, 28.8, 29.6));
+  if (ga > 0) powerGrid(t, VR, prog(t, 28.9, 31.4), ga * (1 - .55 * eOut(prog(t, 31.6, 32.1))));
+  // denklem
+  const eq = prog(t, 31.6, 35);
+  if (eq > 0) {
+    ctx.fillStyle = `rgba(4,6,8,${.55 * eOut(prog(t, 31.6, 32.0))})`; ctx.fillRect(VR.x, VR.y, VR.w, VR.h);
+    const cx = VR.x + VR.w / 2; let y = VR.y + 150;
+    const k0 = eExp(prog(t, 31.65, 32.2));
+    text("AI", cx, y + (1 - k0) * 30, { f: F.d, w: 900, size: 132, c: C.ink, align: "center", a: k0, ls: -2 });
+    line(cx - 160 * k0, y + 42, cx + 160 * k0, y + 42, C.ana, 2);
+    const items = ["COMPUTE", "ENERJİ", "ALTYAPI"];
+    items.forEach((s, i) => {
+      const k = eExp(prog(t, 32.1 + i * .3, 32.6 + i * .3)), yy = y + 140 + i * 128;
+      if (i > 0) text("+", cx, yy - 76, { f: F.d, w: 300, size: 54, c: C.ana, align: "center", a: k });
+      text(s, cx, yy + (1 - k) * 20, { f: F.d, w: 800, size: 74, c: C.ink, align: "center", a: k, ls: 2 });
+    });
+  }
+  ctx.restore();
+  // kısa kaynak dönüşü (köşe ekran)
+  const pa = win(t, 30.1, 31.9, .3, .3);
+  if (pa > 0) { ctx.save(); ctx.globalAlpha = pa; const pr = { x: VR.x + VR.w - 340, y: VR.y + 24, w: 316, h: 200 }; ctx.fillStyle = "#000"; ctx.fillRect(pr.x - 4, pr.y - 4, pr.w + 8, pr.h + 8); sourcePlate(t, pr, { mini: true }); ctx.restore(); }
+  frameMarks(t, VR, a);
+  headline(t, 25.35, 28.55, [{ s: "AI SADECE", w: 900, max: 112, gap: .02 }, { s: "YAZILIM DEĞİL.", w: 900, max: 112 }]);
+  headline(t, 28.65, 34.95, [{ s: "ENERJİ + COMPUTE + ALTYAPI", w: 900, max: 100, c: C.ink }], { y: L.hy + 40 });
+}
+
+function sceneWar(t) {
+  if (t < 34.95 || t > 46.4) return;
+  const a = win(t, 35.0, 46.3, .4, .35);
+  const accel = eIn(prog(t, 39.5, 45.6));
+  ctx.save(); ctx.globalAlpha = a; clipRect(VR);
+  ctx.fillStyle = "#06080b"; ctx.fillRect(VR.x, VR.y, VR.w, VR.h);
+  // veri merkezi bağlantıları → komuta bağlantıları (hatların dönüşümü)
+  const morph = prog(t, 35.0, 36.0);
+  if (morph < 1) { ctx.save(); ctx.globalAlpha *= 1 - eIO(morph); powerGrid(t, VR, 1, 1); ctx.restore(); }
+  const shrink = eIO(prog(t, 38.0, 38.9));
+  const nr = { x: lerp(VR.x, VR.x + 420, shrink), y: lerp(VR.y + 20, VR.y + 60, shrink), w: lerp(VR.w, VR.w - 440, shrink), h: lerp(VR.h - 40, VR.h - 140, shrink) };
+  commandNet(t, nr, prog(t, 35.3, 37.6), 1, 1 + accel * 6);
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha = a;
+  const ck = prog(t, 38.3, 39.4);
+  if (ck > 0) {
+    killChain(t, VR.x + 30, VR.y + 70, 250, ck, accel);
+    // hız göstergesi
+    const sx = VR.x + 30, sy = VR.y + VR.h - 48;
+    text("KARAR HIZI", sx, sy - 14, { f: F.m, w: 600, size: 14, c: C.dim, ls: 2, a: ck });
+    line(sx, sy, sx + 250, sy, C.hair, 4, ck);
+    ctx.fillStyle = accel > .7 ? C.alert : C.ana; ctx.globalAlpha = a * ck; ctx.fillRect(sx, sy - 2, 250 * (.12 + .88 * accel), 4);
+  }
+  ctx.restore();
+  frameMarks(t, VR, a);
+  headline(t, 36.3, 40.6, [{ s: "TEK BİR KARAR AĞI", w: 900, max: 100 }], { y: L.hy + 40 });
+  headline(t, 40.7, 45.95, [
+    { s: "SAVAŞ MAKİNE", f: F.r, it: true, w: 400, max: 112, gap: .02 },
+    { s: "HIZINA ÇIKARSA?", f: F.r, it: true, w: 400, max: 112, c: C.alert }
+  ]);
+}
+
+function sceneAnalysis(t) {
+  if (t < 45.9 || t > 55.4) return;
+  const a = win(t, 46.0, 55.25, .5, .4);
+  ctx.save(); ctx.globalAlpha = a; clipRect(VR);
+  ctx.fillStyle = "#05070a"; ctx.fillRect(VR.x, VR.y, VR.w, VR.h);
+  const lk = prog(t, 49.6, 51.6);
+  globe(t, VR, 1 - .78 * eIO(prog(t, 49.4, 50.2)));
+  if (lk > 0) layers(t, VR, lk, prog(t, 52.2, 53.4));
+  ctx.restore();
+  frameMarks(t, VR, a);
+  headline(t, 46.35, 49.85, [{ s: "BURADAKİ MESELE", w: 900, max: 100, gap: .04 }, { s: "YALNIZCA AI DEĞİL.", w: 900, max: 100 }]);
+  headline(t, 49.95, 55.0, [
+    { s: "TEKNOLOJİK GÜCÜ", f: F.r, it: true, w: 400, max: 112, gap: .02 },
+    { s: "KİM KONTROL EDİYOR?", f: F.r, it: true, w: 400, max: 112, c: C.ana }
+  ]);
+}
+
+function sceneOutro(t) {
+  if (t < 55.0) return;
+  const words = ["HESAPLAMA.", "ENERJİ.", "KARAR."];
+  const conv = eIO(prog(t, 56.35, 56.85)), up = eIO(prog(t, 57.45, 58.0));
+  const cx = W / 2;
+  ctx.save(); ctx.globalAlpha = 1 - up;
+  words.forEach((w, i) => {
+    const k = eExp(prog(t, 55.15 + i * .4, 55.6 + i * .4)); if (k <= 0) return;
+    const y0 = 700 + i * 130, y = lerp(y0, 1010, conv);
+    ctx.save(); ctx.globalAlpha *= k * (1 - conv);
+    text(w, cx, y + (1 - k) * 40, { f: F.d, w: 800, size: 92, c: C.ink, align: "center", ls: 2 });
+    ctx.restore();
+    if (t > 56.0 && conv < 1) line(cx, y0 + 30, cx, lerp(y0 + 30, 1000, eIO(prog(t, 56.0, 56.6))), rgba(C.ana, .7), 1.5, 1 - conv);
+  });
+  const gk = eExp(prog(t, 56.65, 57.2));
+  if (gk > 0) {
+    glow(cx, 960, 360 * gk, rgba(C.ana, .12));
+    text("GÜÇ.", cx, 1010 + (1 - gk) * 40, { f: F.d, w: 900, size: 220, c: C.ink, align: "center", a: gk, ls: -4 });
+  }
+  ctx.restore();
+  const wk = eOut(prog(t, 57.75, 58.3)), qk = eOut(prog(t, 58.05, 58.6)), fk = eOut(prog(t, 58.4, 58.9));
+  text("TEKNOPOLİTİKA", cx, 760, { f: F.d, w: 800, size: 64, c: C.ink, align: "center", ls: 14, a: wk });
+  line(cx - 60 * wk, 800, cx + 60 * wk, 800, C.ana, 2, wk);
+  text("AI çağında egemenlik,", cx, 900 + (1 - qk) * 16, { f: F.r, it: true, w: 400, size: 62, c: C.ink, align: "center", a: qk });
+  text("karar zincirinin neresinde başlıyor?", cx, 975 + (1 - qk) * 16, { f: F.r, it: true, w: 400, size: 54, c: C.ana, align: "center", a: qk });
+  text("Teknoloji  •  Jeopolitik  •  Güç", cx, 1380, { f: F.m, w: 500, size: 22, c: C.dim, align: "center", ls: 3, a: fk });
+}
+
+/* ================================================================
+   ANA ÇİZİM
+   ================================================================ */
+let VIG = null;
+async function renderFrame(t) {
+  await seekPlate(t);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.filter = "none";
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  // ince ızgara
+  if (t < 55) { ctx.save(); ctx.globalAlpha = .5 * (1 - prog(t, 54.6, 55)); ctx.strokeStyle = "rgba(236,232,224,0.035)"; ctx.lineWidth = 1; for (let x = 80; x <= 1000; x += 46) line(x, 0, x, H, "rgba(236,232,224,0.03)"); ctx.restore(); }
+  sceneHook(t); sceneHumanMachine(t); scenePetrov(t); sceneEnergy(t); sceneWar(t); sceneAnalysis(t); sceneOutro(t);
+  lowerThirds(t);
+  header(t);
+  // vinyet + gren + giriş/çıkış
+  if (!VIG) { VIG = ctx.createRadialGradient(W / 2, H * .45, H * .3, W / 2, H * .5, H * .78); VIG.addColorStop(0, "rgba(0,0,0,0)"); VIG.addColorStop(1, "rgba(0,0,0,0.55)"); }
+  ctx.fillStyle = VIG; ctx.fillRect(0, 0, W, H);
+  grain(t, .07);
+  const fade = Math.max(1 - prog(t, 0, .25), prog(t, 59.25, 59.95));
+  if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, W, H); }
+}
+window.renderFrame = renderFrame;
+window.LT_CHECK = () => LT.map(c => ({ t: c[0], n: wrap(c[3], ltFont(c[3]), L.ltW - 24).length, size: ltFont(c[3]).size }));
+
+/* ---------------- önizleme oynatıcısı ---------------- */
+const isRender = new URLSearchParams(location.search).has("render");
+if (isRender) document.body.classList.add("render");
+const fontsReady = (async () => {
+  const faces = ['900 40px "TP Display"', '800 40px "TP Display"', '700 40px "TP Display"', '300 40px "TP Display"', '400 40px "TP Sans"', '500 40px "TP Sans"', '600 40px "TP Sans"', '400 40px "TP Serif"', 'italic 400 40px "TP Serif"', '400 40px "TP Mono"', '500 40px "TP Mono"', '600 40px "TP Mono"'];
+  await Promise.all(faces.map(f => document.fonts.load(f, "İŞĞÜÖÇâ")));
+  if (plateVideo) await new Promise(r => plateVideo.readyState >= 2 ? r() : plateVideo.addEventListener("loadeddata", r, { once: true }));
+  window.READY = true;
+})();
+if (!isRender) {
+  const btn = document.getElementById("play"), sc = document.getElementById("scrub"), tc = document.getElementById("tc");
+  let playing = false, t0 = 0, start = 0, cur = 0, busy = false;
+  const draw = async t => { if (busy) return; busy = true; cur = t; await renderFrame(t); sc.value = t; tc.textContent = t.toFixed(2).padStart(5, "0"); busy = false; };
+  const loop = now => { if (!playing) return; const t = t0 + (now - start) / 1000; if (t >= DUR) { playing = false; btn.textContent = "▶ OYNAT"; draw(DUR - .01); return; } draw(t); requestAnimationFrame(loop); };
+  btn.onclick = () => { playing = !playing; btn.textContent = playing ? "❚❚ DURAKLAT" : "▶ OYNAT"; if (playing) { t0 = cur >= DUR - .05 ? 0 : cur; start = performance.now(); requestAnimationFrame(loop); } };
+  sc.oninput = () => { playing = false; btn.textContent = "▶ OYNAT"; draw(+sc.value); };
+  fontsReady.then(() => draw(2.2));
+}
+</script>
+</body>
+</html>
